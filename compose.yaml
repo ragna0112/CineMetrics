@@ -1,0 +1,61 @@
+services:
+  db:
+    restart: unless-stopped
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cinemetrics}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cinemetrics}
+      POSTGRES_DB: ${POSTGRES_DB:-cinemetrics}
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  backend:
+    restart: unless-stopped
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cinemetrics}:${POSTGRES_PASSWORD:-cinemetrics}@db:5432/${POSTGRES_DB:-cinemetrics}
+      TMDB_TOKEN: ${TMDB_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      RAW_DATA_DIR: /app/data/raw
+    ports: ["8000:8000"]
+    volumes: ["raw_data:/app/data/raw"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  frontend:
+    restart: unless-stopped
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports: ["3000:3000"]
+    depends_on: [backend]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  postgres_data:
+  raw_data:
