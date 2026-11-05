@@ -1,0 +1,59 @@
+name: Collect TMDB snapshots
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Explicit operation (migrate before first ingestion)
+        type: choice
+        options: [ingest, migrate]
+        default: ingest
+      pages:
+        description: Popular pages (1 to 5; keep free job bounded)
+        type: choice
+        options: ['1', '2', '3', '4', '5']
+        default: '5'
+  schedule:
+    - cron: '23 2 * * *' # UTC; 10:23 AM Manila, scheduling may be delayed
+permissions:
+  contents: read
+concurrency:
+  group: cinemetrics-production-database
+  cancel-in-progress: false
+jobs:
+  collect:
+    # Opt-in prevents collection on push or before secrets/setup are ready.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_DAILY_INGESTION == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+      TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+      RAW_ARCHIVE_MODE: database
+      OPERATION: ${{ inputs.operation || 'ingest' }}
+      PAGES: ${{ inputs.pages || '5' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate required settings without printing secrets
+        run: |
+          python - <<'PY'
+          import os
+          if not os.environ.get('DATABASE_URL'):
+              raise SystemExit('Set NEON_DATABASE_URL_DIRECT in repository Actions secrets.')
+          if os.environ['OPERATION'] == 'ingest' and not os.environ.get('TMDB_TOKEN'):
+              raise SystemExit('Set TMDB_TOKEN in repository Actions secrets.')
+          PY
+      - run: pip install -r requirements.txt
+      - name: Apply explicitly requested additive migrations
+        if: env.OPERATION == 'migrate'
+        run: alembic upgrade head
+      - name: Collect current observations
+        if: env.OPERATION == 'ingest'
+        run: python -m app.ingest --pages "$PAGES" --max-seconds 1200

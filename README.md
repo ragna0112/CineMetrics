@@ -62,10 +62,11 @@ The frontend API URL must be reachable by the user's browser. Never use `http://
 ## How data travels
 
 1. `backend/app/ingest.py` reads TMDB configuration, genre names, popular movie pages, and each movie's details in English. `--pages` accepts 1–500; a page normally contains up to 20 movies. It stops at TMDB's last available page. Adult titles are excluded.
-2. Each successful JSON response is archived under `RAW_DATA_DIR/<UTC timestamp>-<UUID>/` before transformation. Files contain response bodies, never request authorization headers.
+2. In local file mode, each successful JSON response is archived under `RAW_DATA_DIR/<UTC timestamp>-<UUID>/` before transformation. Files contain response bodies, never request authorization headers.
 3. The transformer validates identity, dates and finite nonnegative metrics. Missing metrics remain SQL NULL. Invalid records fail the run rather than silently changing the dataset.
 4. One database transaction upserts genres, metadata, associations and daily snapshots. A PostgreSQL advisory lock prevents concurrent runs. Success is recorded atomically with movie changes; failure is recorded separately. Raw files survive failed runs for diagnosis.
-5. FastAPI reads stored snapshots. The browser requests the API for every search, filter, sort, page and detail chart.
+5. In cloud `RAW_ARCHIVE_MODE=database`, responses are committed independently to gzip-compressed `raw_responses` instead of local files.
+6. FastAPI reads stored snapshots. The browser requests the API for every search, filter, sort, page and detail chart.
 
 The CLI uses a 20-second request timeout and five bounded attempts, exponential backoff for transport errors/5xx, and Retry-After for 429 (wait capped at 60 seconds). Persistent failure ends the run. Logs/errors avoid response bodies and credentials. An abruptly killed process can leave a `running` run; inspect it before marking it failed manually. No partial movie transaction is committed.
 
@@ -76,8 +77,9 @@ The CLI uses a 20-second request timeout and five bounded attempts, exponential 
 - `movie_genres`: composite primary key, foreign keys and genre index.
 - `movie_snapshots`: primary key `(movie_id, day)`, UTC date, collected timestamp, nullable popularity/rating/vote count. Checks enforce nonnegative scores/counts and rating 0–10. Index on day.
 - `pipeline_runs`: start/end time, status, count, sanitized error.
+- `raw_responses`: run ID, UTC collection timestamp, resource identifier, gzip JSON bytes; private audit archive used in database mode.
 
-Alembic migration `001` creates the schema. Apply with `alembic upgrade head`; no tables are created by API startup. Back up PostgreSQL using your hosting provider's backups or pg_dump. Raw JSON is an audit archive, not a substitute for database backups.
+Alembic migration `001` creates the original schema; additive migration `002` adds the cloud raw-response archive. Apply with `alembic upgrade head`; no tables are created by API startup. Back up PostgreSQL using your hosting provider's backups or pg_dump. Raw JSON is an audit archive, not a substitute for database backups.
 
 ## API
 
@@ -143,29 +145,17 @@ curl 'http://localhost:8000/movies?page_size=2&sort=rating'
 
 The last SQL query must return no rows. Check title search, genre/year/vote filters, both pagination directions, direct movie URLs, poster fallback, unavailable API states, keyboard navigation, and a 390px viewport. After collecting on another UTC day, verify charts and rising comparison dates. See VERIFICATION.md for checks actually performed during implementation.
 
-## Deployment (no deployment performed)
+## Deployment with Vercel and Neon
 
-A straightforward option is a single Linux VM with Docker Compose, persistent disk and cron, behind an HTTPS reverse proxy. It keeps ingestion next to the raw archive. The VM, disk, backups and domain can incur costs. Do not expose PostgreSQL publicly; the supplied port binding is localhost only. Restrict the backend's port with your firewall or proxy. Use unique production DB credentials and HTTPS for both origins. Configure `CORS_ORIGINS=https://your-frontend.example`, and `NEXT_PUBLIC_API_URL=https://your-api.example` before building. Keep `.env` out of Git and grant access only to the service account. Apply migrations before rolling out the API. For a VM deployment, arrange automatic service startup and backups; Docker volumes are local, not highly available.
+Use one Vercel Hobby Services project with repository root `.`, the Next.js frontend at `/`, and the FastAPI backend at `/api`. Set `NEXT_PUBLIC_API_URL=/api` in Production and Preview. Native/Docker development retains its existing local API URLs.
 
-Install a daily private job on that VM using `crontab -e` (UTC schedule, or use a UTC-configured host):
+Read [the exact Vercel and Neon deployment instructions](docs/DEPLOYMENT.md) for project settings, environment variables, safe migrations, first ingestion, scheduling, quotas, and acceptance checks. Enter secrets directly into Vercel/GitHub dashboards; no cloud resources have been created or deployed by this preparation.
 
-```cron
-CRON_TZ=UTC
-15 2 * * * /absolute/path/to/cinemetrics/scripts/ingest-daily.sh /absolute/path/to/cinemetrics >> /absolute/path/to/ingestion.log 2>&1
-```
+The root `vercel.json` uses the current Services beta configuration, supported on Hobby. Neon pooled connections serve API requests; a direct connection is required for migrations and the ingestion CLI. SQLAlchemy accepts both Neon `postgresql://` URLs and existing `postgresql+psycopg://` local URLs while preserving SSL parameters.
 
-Cron's PATH must include Docker (set PATH explicitly where needed). The Docker daemon must be running. Rotate the log; monitor failed/running pipeline_runs and health checks. `CRON_TZ` support varies by cron implementation; configuring the host to UTC is the portable choice. Raw JSON lives in the `raw_data` volume; back it up and provision space for daily details responses. Choose retention based on your audit needs; no automatic deletion is included.
+GitHub Actions provides explicit manual `migrate` and `ingest` operations and an opt-in daily job at 02:23 UTC. It uses repository secrets and concurrency protection. Cloud ingestion stores gzip JSON in the new `raw_responses` table via additive migration `002`; it does not depend on Vercel or runner disk persistence. Local `RAW_ARCHIVE_MODE=file` retains the named-volume archive. Database storage grows over time, so monitor free quotas and back up archives.
 
-Managed alternative: Render web services + Render PostgreSQL. Create PostgreSQL, use its private connection URL with SQLAlchemy's `postgresql+psycopg://` scheme. Frontend root `frontend`, Node 22, build `npm ci && npm run build`, start `npm start -- --port $PORT`. Backend root `backend`, Python 3.12, build `pip install -r requirements.txt`, pre-deploy `alembic upgrade head`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health `/health`. Configure the public browser API URL at build time and exact frontend origin on backend CORS. Migrations must run once per release, not per worker. Keep secrets in provider environment settings.
-
-A Render cron job cannot access a persistent disk, including the API service's disk. This CLI writes raw JSON locally, so **do not run it on ephemeral Render cron storage if you need those archives**. Use the VM cron setup above, or implement object-storage archival before using an isolated managed cron job. Paid services, persistent disks, database storage/backups, and cron execution have separate charges. Free web services have cold starts and no persistent disk; free database offerings have limits and are unsuitable as an assumed durable production tier. Check current plan details rather than relying on a permanently free deployment.
-
-Official docs reviewed for this implementation:
-
-- [Next.js installation](https://nextjs.org/docs/app/getting-started/installation), [Tailwind with Next.js](https://tailwindcss.com/docs/installation/framework-guides/nextjs)
-- [FastAPI containers](https://fastapi.tiangolo.com/deployment/docker/), [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html)
-- [TMDB popular movies](https://developer.themoviedb.org/reference/movie-popular-list), [image configuration](https://developer.themoviedb.org/docs/image-basics), [rate limiting](https://developer.themoviedb.org/docs/rate-limiting), [popularity](https://developer.themoviedb.org/docs/popularity-and-trending), [attribution and API terms](https://developer.themoviedb.org/docs/faq)
-- [Render Next.js](https://render.com/docs/deploy-nextjs-app), [FastAPI](https://render.com/docs/deploy-fastapi), [cron](https://render.com/docs/cronjobs), [disks](https://render.com/docs/disks), [free service limits](https://render.com/docs/free), [pricing](https://render.com/pricing)
+Do not run migrations or ingestion in a Vercel build, HTTP endpoint, or function cron. The sequential TMDB collection can exceed Hobby request duration; it runs privately on Actions with a 20-minute collection budget and 30-minute job timeout. History still begins on actual collection dates.
 
 ## Attribution
 

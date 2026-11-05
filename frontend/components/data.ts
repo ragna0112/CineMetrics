@@ -22,7 +22,12 @@ export type Summary = {
   latest_day: string | null;
   last_refresh: string | null;
 };
-export const api = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Production uses the same-origin Vercel service. Local Docker/native URLs
+// remain configurable; no database or TMDB secrets enter browser code.
+export const api = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:8000")
+).replace(/\/$/, "");
 export async function request<T>(
   path: string,
   signal?: AbortSignal,

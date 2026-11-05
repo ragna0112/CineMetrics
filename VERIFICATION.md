@@ -39,3 +39,19 @@ PostgreSQL container is running on localhost:5433. Dockerized API and frontend a
 The user subsequently supplied a Read Access Token. Stored only in the root .env file (mode 0600, covered by .gitignore). Successfully ingested five popular pages: 96 distinct movies. A one-page same-day rerun succeeded; PostgreSQL still had 96 movies and 96 snapshots, with zero duplicate movie/day groups. UTC collection day: 2026-10-22.
 
 Live API title search for Inception, genre/min-votes/rating filters, second-page results, movie details and snapshot history succeeded. Browser title search returned Inception with its real poster and score; its detail URL loaded real metadata and an honest one-day-history state. The TMDB attribution logo also loaded in the browser. These checks supersede the earlier missing-token and poster/logo limitations above. Multi-day charts and rising gains still require a later UTC collection day; no older observations were fabricated.
+
+## Vercel and Neon preparation on November 6 2026
+
+This entry describes local preparation, not a cloud deployment.
+
+- Inspected actual configuration, migrations, request paths, ingestion, archive handling, and test fixtures before choosing one Vercel Services project.
+- Checked current official Vercel Services/Hobby/FastAPI/Python/runtime/filesystem/cron documentation, Neon connection pooling and free-plan limits, and GitHub scheduling/billing docs. Sources and exact settings are in docs/DEPLOYMENT.md.
+- Root vercel.json validated against the live official Vercel JSON schema. This is configuration-schema validation, not a Vercel cloud build.
+- GitHub workflow YAML structurally validated: only manual/scheduled triggers, read-only contents permission, main-branch condition, opt-in schedule, concurrency group with no cancellation, and a bounded 30-minute job. No Actions workflow was dispatched.
+- Fresh disposable local PostgreSQL database: migration 001, insert an existing test movie, upgrade to 002, repeat upgrade to head. Existing movie remained and revision was 002. No production database was migrated.
+- 22 backend tests passed on native Python 3.11 and the existing Python 3.12.15 container runtime with current source mounted read-only and a disposable PostgreSQL database. Coverage includes URL normalization/SSL preservation, connection pooling choice, direct-host guard, /api routes/docs, missing ingestion route, raw archive persistence, no filesystem writes in database mode, deadlines, complete mocked TMDB ingestion with PostgreSQL archives, plus prior query/trend/upsert tests. One upstream Starlette/AnyIO deprecation warning remains.
+- Production Next.js build passed with NEXT_PUBLIC_API_URL=/api; TypeScript check passed. Inspected frontend calls: all use the central request helper; localhost is only a development fallback and the explicit local Docker setting.
+- Docker Compose configuration validation and git diff whitespace check passed. Existing local startup commands and file-archive defaults retained.
+- An optional fresh backend image build stalled during Docker registry metadata resolution and was canceled; current-source tests were run successfully using the already available Python 3.12 backend image instead. A first test container launch with a nested read-only mount failed before execution; corrected the bind target and the test run passed. This does not verify a new image build or Vercel package bundle.
+
+Not checked: actual Vercel Services beta availability/settings for the account, Vercel build/runtime, Neon credentials/SSL connection, public URLs/CORS at the CDN, GitHub secret entry or scheduled execution, and multi-day cloud observations. No secrets were read into the output, no cloud resources created, no public deployment performed, and no commit/push made (a connected branch push could trigger deployment). User must enter cloud secrets directly in provider dashboards.

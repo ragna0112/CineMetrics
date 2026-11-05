@@ -41,3 +41,12 @@ class PipelineRun(Base):
     status: Mapped[str] = mapped_column(String(20), index=True)
     movie_count: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None] = mapped_column(Text)
+
+class RawResponse(Base):
+    """Durable gzip JSON audit archive; not exposed through the public API."""
+    __tablename__ = 'raw_responses'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey('pipeline_runs.id'), index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resource: Mapped[str] = mapped_column(String(200))
+    payload_gzip: Mapped[bytes]

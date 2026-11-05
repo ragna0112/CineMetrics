@@ -67,7 +67,7 @@ Paths below are relative to the repository root.
 
 | File | What to study |
 | --- | --- |
-| `backend/app/models.py` | The five tables, relationships, keys, and constraints |
+| `backend/app/models.py` | The core tables, relationships, keys, and constraints |
 | `backend/app/ingest.py` | Fetching, transformation, retries, raw archives, and upserts |
 | `backend/app/main.py` | Filtering, pagination, summaries, and rising calculations |
 | `backend/app/db.py` | Engine, database sessions, and request dependency |
@@ -95,6 +95,7 @@ Suggested reading order: models → ingestion → API → frontend data helper �
 | `movie_genres` | Links movies with their genres | Movie ID + genre ID |
 | `movie_snapshots` | Daily popularity, rating, vote count, and collection time | Movie ID + UTC day |
 | `pipeline_runs` | Collection start/end, status, count, and sanitized failure information | Run ID |
+| `raw_responses` | Optional durable gzip JSON archive in database mode | Response ID |
 
 A movie has many snapshots. A movie can have several genres, and one genre can belong to many movies, so `movie_genres` implements a many-to-many relationship. Foreign keys prevent associations or snapshots from referring to nonexistent parent records.
 
@@ -353,3 +354,7 @@ These are not current features:
 - More browser coverage for populated filters, pagination, accessibility, and multi-day history.
 
 The most useful next step for portfolio preparation is to explain one complete request and one complete ingestion run without reading a script, then make and test a small change yourself.
+
+## Vercel and Neon deployment update
+
+See [deployment instructions](DEPLOYMENT.md) for the prepared one-project Services configuration. The deployed API uses `/api`, while local Docker/native API routes remain unprefixed. GitHub Actions is configured for private, opt-in daily collection; cloud raw responses use `RAW_ARCHIVE_MODE=database` and the additive `002` migration. These prepared files do not install or verify a cloud deployment or an active schedule. The local file archive still uses its existing named volume.

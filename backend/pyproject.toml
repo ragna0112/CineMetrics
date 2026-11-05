@@ -1,0 +1,4 @@
+# Explicit entrypoint also supports the optional backend-only Vercel project.
+# Runtime dependencies remain in requirements.txt; Python is pinned in .python-version.
+[tool.vercel]
+entrypoint = "index:app"

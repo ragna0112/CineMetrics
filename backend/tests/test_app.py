@@ -124,7 +124,7 @@ def test_ingestion_rerun_and_rollback(tmp_path,monkeypatch):
     from app.models import PipelineRun
     engine=create_engine(os.environ['TEST_DATABASE_URL'])
     factory=sessionmaker(engine)
-    config=SimpleNamespace(tmdb_token='test-only',raw_data_dir=str(tmp_path))
+    config=SimpleNamespace(tmdb_token='test-only',raw_data_dir=str(tmp_path), database_url=os.environ['TEST_DATABASE_URL'])
     monkeypatch.setattr(module,'settings',lambda:config)
     monkeypatch.setattr(module,'Session',factory)
     bad=[False]

@@ -21,6 +21,7 @@ services:
       TMDB_TOKEN: ${TMDB_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       RAW_DATA_DIR: /app/data/raw
+      RAW_ARCHIVE_MODE: ${RAW_ARCHIVE_MODE:-file}
     ports: ["8000:8000"]
     volumes: ["raw_data:/app/data/raw"]
     depends_on:
