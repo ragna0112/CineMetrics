@@ -13,7 +13,7 @@ GitHub Actions → TMDB → Neon direct connection (snapshots + compressed raw J
 Official documentation checked November 6, 2026:
 
 - [Vercel Services](https://vercel.com/docs/services) is in beta on all plans, including Hobby. The current configuration uses `services` with service-targeted rewrites; earlier `experimentalServices`/`routePrefix` examples are not used.
-- [Services routing](https://vercel.com/docs/services/routing) retains the original incoming path. `backend/index.py` mounts the API at `/api`, so `/api/movies`, `/api/docs`, and `/api/openapi.json` resolve correctly. The Next.js `/movies/{id}` page stays separate.
+- [Services routing](https://vercel.com/docs/services/routing) retains the original incoming path. `backend/index.py` mounts the API at `/api`, so `/api/movies`, `/api/docs`, and `/api/openapi.json` resolve correctly. The Next.js `/movies/{id}` page stays separate. An explicit `/` service lookup targets the generated `/index` page, preserving the browser URL `/`; non-root paths retain their own route lookup.
 - [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi) supports a single function for the application. [Python configuration](https://vercel.com/docs/functions/runtimes/python) supports `.python-version` and `requirements.txt`; the repository selects Python 3.12.
 - [Hobby](https://vercel.com/docs/plans/hobby) is intended for personal, noncommercial use. [Function limits](https://vercel.com/docs/functions/limitations) currently cap Hobby Node/Python requests at 300 seconds with Fluid Compute. This API explicitly uses a 60-second maximum. Function responses have a 4.5 MB limit; the current bounded collection is small, but unbounded movie history may eventually need pagination.
 - [Function filesystem restrictions](https://vercel.com/docs/functions/runtimes) provide temporary scratch space, not persistent application storage. The API never ingests or writes raw files.
@@ -49,7 +49,7 @@ The committed Dockerfiles are for local Docker; the Vercel configuration selects
 
 ### Separate project fallback
 
-Use this only if Services beta is unavailable in your account or the existing project cannot be converted. Keep the frontend project root `frontend`; create a FastAPI project with root `backend`, Python 3.12 and normal auto-detection of `index.py`. Both use their directory as project root, so the repository-root Services configuration is not applied. The backend still exposes `/api/*` through `index.py`.
+Use this only if Services beta is unavailable in your account or the existing project cannot be converted. Keep the frontend project root `frontend`; create a FastAPI project with root `backend`, Python 3.12 and normal auto-detection of `index.py`. Keep `requirements.txt` as the dependency manifest; an entrypoint-only `pyproject.toml` would take precedence without declaring the runtime dependencies. Both use their directory as project root, so the repository-root Services configuration is not applied. The backend still exposes `/api/*` through `index.py`.
 
 Set the frontend's `NEXT_PUBLIC_API_URL=https://your-backend.vercel.app/api`, set the backend's `CORS_ORIGINS=https://your-frontend.vercel.app`, and set the backend's pooled `DATABASE_URL`. Redeploy the frontend after setting the URL. Cross-project preview frontend URLs require exact CORS entries and a reachable backend deployment; do not solve this by permitting all origins. Two projects add setup and cross-origin requests, so the one-project configuration is preferred.
 
@@ -191,3 +191,17 @@ If previews are protected, inspect them while signed in; public checks may recei
 ## Local verification for this change
 
 See the deployment preparation entry in `VERIFICATION.md` for executed checks. Schema validation and local tests cannot prove Vercel account availability, a cloud build, Neon SSL connectivity, Actions scheduling, or a successful public deployment. Those require the user's dashboards and credentials after approval to deploy.
+
+## Production routing regression and dependency discovery
+
+The first Services deployment served `/discover` and the generated overview at `/index` but returned Vercel NOT_FOUND at `/`. The explicit root rewrite uses `destination.path=/index` to select the built overview artifact while leaving the public URL unchanged. Source `frontend/app/page.tsx` remains the homepage; no duplicate page or client redirect is needed.
+
+The removed backend `pyproject.toml` only declared an entrypoint. Vercel's Python dependency discovery selected it with no dependencies instead of converting `requirements.txt`. The Services entrypoint remains `index:app` in root configuration, and Python 3.12 remains in `.python-version`. Local Docker, Actions, and Vercel now use the same requirements list.
+
+After every deployment, run the public HTTP check rather than relying on Ready status:
+
+```sh
+python3 scripts/verify-deployment.py https://cine-metrics-theta.vercel.app
+```
+
+This performs only GET requests to the homepage and `/api/health`; it never runs collection or migrations.

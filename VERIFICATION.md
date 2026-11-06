@@ -55,3 +55,13 @@ This entry describes local preparation, not a cloud deployment.
 - An optional fresh backend image build stalled during Docker registry metadata resolution and was canceled; current-source tests were run successfully using the already available Python 3.12 backend image instead. A first test container launch with a nested read-only mount failed before execution; corrected the bind target and the test run passed. This does not verify a new image build or Vercel package bundle.
 
 Not checked: actual Vercel Services beta availability/settings for the account, Vercel build/runtime, Neon credentials/SSL connection, public URLs/CORS at the CDN, GitHub secret entry or scheduled execution, and multi-day cloud observations. No secrets were read into the output, no cloud resources created, no public deployment performed, and no commit/push made (a connected branch push could trigger deployment). User must enter cloud secrets directly in provider dashboards.
+
+## Production Services routing and packaging fix
+
+Before the fix, direct public HTTP checks found `/` returning Vercel NOT_FOUND (404), `/discover` and `/index` serving CineMetrics HTML (200), and `/api/health` and `/api/docs` failing function invocation (500). The Next.js production output contained the overview at `server/app/index.html` and a prerender entry for `/`.
+
+Official Vercel Python package discovery (CLI 65.12.1) selected the entrypoint-only backend/pyproject.toml with no project dependencies. After removing it, the same discovery selected requirements.txt with all required API dependencies. The entrypoint remains in vercel.json. An explicit `/` service rewrite selects `/index` without changing the public request URL. No database changes, resets, migration jobs, or collection jobs were run for this fix.
+
+Local checks: production frontend build passed with NEXT_PUBLIC_API_URL=/api; Vercel schema validation and homepage artifact check passed; backend tests: 19 passed, 3 PostgreSQL tests skipped, one upstream deprecation warning. Added scripts/verify-deployment.py to check real public homepage HTML and database health using GET requests.
+
+Authenticated Vercel dashboard access was unavailable (browser required login, no local Vercel auth). Public GitHub commit statuses provide deployment progress, while HTTP responses determine actual acceptance. The user was asked for runtime/frontend build logs if the code fixes do not restore service. Live acceptance results are recorded separately after redeployment.
